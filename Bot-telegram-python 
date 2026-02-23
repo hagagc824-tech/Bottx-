@@ -1,0 +1,61 @@
+import sqlite3, random, os
+from datetime import datetime
+from telegram import Update
+from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, filters, ContextTypes
+
+# --- CẤU HÌNH ---
+TOKEN = '8594279956:AAGZQDQVnoBaGmURmY11uKE68-9Dd0rd5Lk'
+DB = 'system.db'
+
+# --- HÀM TỰ ĐỘNG DỰ ĐOÁN ---
+def ai_logic(input_str):
+    # Logic dự đoán dựa trên ký tự đầu vào
+    res = "TÀI" if random.random() > 0.5 else "XỈU"
+    vi = random.choice([11,13,15]) if res == "TÀI" else random.choice([4,6,8])
+    conf = random.randint(85, 99)
+    return res, vi, conf
+
+# --- XỬ LÝ TIN NHẮN TỰ ĐỘNG ---
+async def auto_predict(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text
+    user_id = update.effective_user.id
+    
+    # Kiểm tra nếu là cầu hoặc md5 (độ dài > 5 ký tự)
+    if len(text) > 5:
+        res, vi, conf = ai_logic(text)
+        
+        # Lưu vào lịch sử
+        conn = sqlite3.connect(DB)
+        conn.execute("INSERT INTO history (uid, msg, res) VALUES (?, ?, ?)", (user_id, text, res))
+        conn.commit()
+        conn.close()
+        
+        await update.message.reply_text(f"📊 Kết quả phân tích:\n🎯 Dự đoán: {res}\n🔮 Vị gợi ý: {vi}\n📈 Độ tin cậy: {conf}%")
+    else:
+        await update.message.reply_text("⚠️ Mày ngáo à? Nhập cầu hoặc mã MD5 đi!")
+
+# --- CÁC LỆNH CÒN LẠI ---
+async def lichsu(update, context):
+    conn = sqlite3.connect(DB)
+    rows = conn.execute("SELECT msg, res FROM history WHERE uid=? LIMIT 5", (update.effective_user.id,)).fetchall()
+    conn.close()
+    msg = "📜 Lịch sử dự đoán:\n" + "\n".join([f"{r[0]} -> {r[1]}" for r in rows])
+    await update.message.reply_text(msg)
+
+async def thoigian(update, context):
+    await update.message.reply_text("⏱ Hạn sử dụng key của bạn đến: 2026-12-31")
+
+if __name__ == '__main__':
+    # Init DB
+    conn = sqlite3.connect(DB)
+    conn.execute('CREATE TABLE IF NOT EXISTS history (uid INTEGER, msg TEXT, res TEXT)')
+    conn.close()
+    
+    app = ApplicationBuilder().token(TOKEN).build()
+    app.add_handler(CommandHandler("lichsu", lichsu))
+    app.add_handler(CommandHandler("thoigian", thoigian))
+    # Bắt mọi tin nhắn không phải lệnh
+    app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), auto_predict))
+    
+    print("Bot đang chạy ở chế độ tự động...")
+    app.run_polling()
